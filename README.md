@@ -16,6 +16,20 @@ Usage
 | --------- | --------------------------------------------- |
 | -gh, --gh | Use GitHub CLI instead of git CLI for cloning |
 
+For convenience, a few Fish shell functions are included:
+
+* `clone-tree $remote $local` Sets up a clean worktree-centric clone of some
+  remote repo like this: 
+
+```
+    repo_name
+    ├── .git
+    └── master
+```
+
+* `lst` Lists all worktree directories in your project
+* `cdt $tree` Changes the working directory to some existing `$tree`
+
 Requirements
 ------------
 * Tcl 8.6 or later
