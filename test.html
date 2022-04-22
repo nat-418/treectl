@@ -1,0 +1,60 @@
+<h1>treectl</h1>
+
+<p>A tool to help manage git worktrees</p>
+
+<h2>Usage</h2>
+
+<p>treectl [command] [options] [arguments]</p>
+
+<table>
+<thead>
+<tr>
+<th> Command                 </th>
+<th> Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> list-all                </td>
+<td> List all local worktrees                     </td>
+</tr>
+<tr>
+<td> find-path  NAME         </td>
+<td> Show the path to a given local worktree      </td>
+</tr>
+<tr>
+<td> init-clone REMOTE LOCAL </td>
+<td> Clone a worktree-optimized remote repository </td>
+</tr>
+</tbody>
+</table>
+
+
+<table>
+<thead>
+<tr>
+<th> Option    </th>
+<th> Description                                   </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> -gh, &ndash;gh </td>
+<td> Use GitHub CLI instead of git CLI for cloning </td>
+</tr>
+</tbody>
+</table>
+
+
+<h2>Requirements</h2>
+
+<ul>
+<li>Tcl 8.6 or later</li>
+<li>Fish shell (optional)</li>
+</ul>
+
+
+<h2>Installing</h2>
+
+<p>Running the included <code>install</code> script will put <code>treectl</code> in <code>~/.local/bin/</code>
+and the various fish helper functions in <code>~/.config/fish/functions</code>.</p>
