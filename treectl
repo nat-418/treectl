@@ -2,38 +2,131 @@
 
 package require Tcl 8.6
 
-set version 0.0.1
+set version 0.0.2 
 
-set help [string trim "
-treectl v$version | A command-line tool to help manage git worktrees
+proc tempdir {} {
+  close [file tempfile path]
+  file delete $path
+  file mkdir $path
+  return $path
+}
 
-Usage:
-  treectl \[command\] \[options\] \[arguments\]
+proc testGitDirectory {path} {
+  cd $path
 
-Options:
-  -gh, --gh    Use GitHub CLI instead of git CLI for cloning
-
-Commands:
-  list-all                   List all local worktrees
-  find-path  NAME            Show the path to a given local worktree
-  init-clone REMOTE LOCAL    Clone a worktree-optimized remote repository
-"]
-
-proc checkPath {path} {
-  if {$path eq ""} {
-    set path .
-  }
-
-  if {![file exists [file join $path .git]]} {
-    puts stderr "Error: not a git directory"
-    exit 1
-  } else {
-    return $path
+  try {
+    exec git status
+    return true
+  } on error message {
+    return false
   }
 }
 
-proc listTrees {path} {
-  cd $path
+proc findGitRoot {path {result ""}} {
+  set result [file normalize .]
+
+  cd ..
+
+  if {[testGitDirectory .]} {
+    tailcall findGitRoot ..
+  } else {
+    cd $path
+    return $result
+  }
+}
+
+proc initRepo {arguments} {
+  set local   [file normalize [lindex $arguments 0]]
+  set git_dir [file join $local .git]
+
+  if {[testGitDirectory .]} {
+    puts stderr "Error: already in a git directory"
+    exit 1
+  }
+
+  if {[file exists $local]} {
+    puts stderr "Error: '$local' already exists"
+    exit 1
+  }
+
+  set dummy [file normalize [tempdir]]
+  cd $dummy
+  close [open .gitignore a]
+
+  exec git init
+  exec git add .gitignore
+  exec git commit -m "Initial commit"
+
+  catch {exec git clone --bare file:///$dummy $git_dir}
+
+  file mkdir $local
+  cd $local
+  exec git worktree add master
+  file remove $dummy
+}
+
+proc cloneRepo {arguments} {
+  set first_arg      [lindex $arguments 0]
+  set remote         $first_arg
+  set local          [lindex $arguments 1]
+  set use_GitHub_CLI [expr {$first_arg eq "-gh" || $first_arg eq "--gh"}]
+
+  if {[testGitDirectory .]} {
+    puts stderr "Error: already in a git directory"
+    exit 1
+  }
+
+  if {[file exists $local]} {
+    puts stderr "Error: '$local' already exists"
+    exit 1
+  }
+
+  file mkdir $local
+  cd $local
+
+  if $use_GitHub_CLI {
+    set remote [lindex $arguments 1]
+    set local  [lindex $arguments 2]
+    catch {exec gh repo clone $remote .git -- --bare}
+  } else {
+    catch {exec git clone --bare $remote .git}
+  }
+
+  foreach branch {dev develop main master current} {
+    if {[exec git ls-remote --heads origin $branch] ne ""} {
+      exec git worktree add $branch
+    }
+  }
+}
+
+proc addTree {tree_name options} {
+  cd  [findGitRoot .]
+  exec git worktree add $tree_name {*}$options
+}
+
+proc removeTree {tree_name options} {
+  cd [findGitRoot .]
+  exec git worktree remove $tree_name {*}$options
+}
+
+proc findTree {tree_name} {
+  if {$tree_name eq ""} {
+    puts stderr "Error: no tree name given"
+    exit 1
+  }
+
+  set path [file join [findGitRoot .] $tree_name]
+
+  if {[file isdirectory $path]} {
+    return $path
+  } else {
+    puts stderr "Error: could not find path to '$tree_name'"
+    exit 1
+  }
+}
+
+proc listTrees {} {
+  set results {}
 
   foreach line [split [exec git worktree list --porcelain] "\n"] {
     set segments [split $line]
@@ -47,104 +140,36 @@ proc listTrees {path} {
   return $results
 }
 
-proc findgit_root {path {result ""}} {
-  set result [file normalize [file dirname .]]
-
-  cd ..
-
-  if {[file exists .git]} {
-    if {[file isdirectory ..]} {
-      tailcall findgit_root ..
-    }
-  } else {
-    cd $path
-    return $result
-  }
-}
-
-proc initClone {arguments} {
-  set first_arg      [lindex $arguments 0]
-  set remote         $first_arg
-  set local          [lindex $arguments 1]
-  set clone_cmd      "git clone --bare $remote .git"
-  set use_GitHub_CLI [expr {$first_arg eq "-gh" || $first_arg eq "--gh"}]
-
-  if $use_GitHub_CLI {
-    set remote    [lindex $arguments 1]
-    set local     [lindex $arguments 2]
-    set clone_cmd "gh repo clone $remote .git -- --bare"
-  }
-
-  if {[file exists $local]} {
-    puts stderr "Error: local directory '$local' already exists."
-    exit 1
-  }
-
-  puts "mkdir $local"
-  file mkdir $local
-
-  puts "cd $local"
-  cd $local
-
-  # gh repo clone exits with an error code even when the clone succeeds (?)
-  if $use_GitHub_CLI {
-    puts $clone_cmd
-    try {
-      exec {*}$clone_cmd
-    } on error message {
-      puts $message
-    }
-  } else {
-    puts $clone_cmd
-    try {
-      exec {*}$clone_cmd
-    } on error message {
-      puts $message
-      exit 1
-    }
-  }
-
-  foreach branch {dev develop main master current} {
-    if {[exec git ls-remote --heads origin $branch] ne ""} {
-      puts [exec git worktree add $branch]
-    }
-  }
-}
-
-proc findPath {treePaths treeName} {
-  if {$treeName eq ""} {
-    puts stderr "Error: no tree name given"
-    exit 1
-  }
-
-  try {
-    return [dict get $treePaths $treeName]
-  } on error message {
-    puts stderr "Error: could not find path to '$treeName'"
-    exit 1
-  }
-}
-
 set command   [lindex $argv 0]
 set arguments [lrange $argv 1 end]
 
-if {$command eq "list-all" || $command eq "find-path"} {
-  set path     [checkPath [file normalize .]]
-  set git_root [findgit_root $path]
+set help [string trim "
+treectl v$version | A command-line tool to help manage git worktrees
 
-  foreach tree [listTrees $path] {
-    dict set worktree_paths $tree [file join $git_root $tree]
-  }
-}
+Usage:
+  treectl \[command\] \[options\] \[arguments\]
 
-try {
-  switch -glob $command {
-    "list-all"   {puts [join [dict keys $worktree_paths] "\n"]}
-    "find-path"  {puts [findPath $worktree_paths [lindex $arguments 0]]}
-    "init-clone" {initClone $arguments}
-    default      {puts $help}
-  }
-} on error message {
-  puts stderr $message
-  exit 1
+Options:
+  -gh, --gh    Use GitHub CLI instead of git CLI for cloning
+
+Commands:
+  add   NAME            Add a worktree of NAME
+  clone REMOTE LOCAL    Clone a worktree-optimized REMOTE repository to LOCAL path
+  find  NAME            Return the path of worktree NAME
+  init  LOCAL           Initialize a worktree-optimized repository in LOCAL path
+  help                  Print this help message
+  ls                    List all local worktrees
+  new   NAME            Create a new branch NAME and add a worktree for it
+  rm    NAME            Remove a worktree for NAME
+"]
+
+switch -glob $command {
+  "add"   {addTree    [lindex $arguments 0] [lrange $arguments 1 end]}
+  "clone" {cloneRepo $arguments}
+  "find"  {puts [findTree [lindex $arguments 0]]}
+  "init"  {initRepo $arguments}
+  "ls"    {puts [join [listTrees] "\n"]}
+  "new"   {addTree    [lappend -b [lindex $arguments 0]] {}}
+  "rm"    {removeTree [lindex $arguments 0] [lrange $arguments 1 end]}
+  default {puts $help}
 }
